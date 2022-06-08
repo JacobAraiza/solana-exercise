@@ -10,6 +10,10 @@ pub enum Error {
     NotRentExempt,
     #[error("Escrow account data is missing or invalid")]
     InvalidEscrowAccount,
+    #[error("Buyer and seller amounts do not match up")]
+    ExpectedAmountMismatch,
+    #[error("Lamport amount overflow")]
+    AmountOverflow,
 }
 
 impl From<Error> for ProgramError {

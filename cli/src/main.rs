@@ -18,6 +18,7 @@ fn main() -> Result<(), Error> {
         RpcClient::new_with_commitment("http://localhost:8899", CommitmentConfig::confirmed());
     match Command::from_args() {
         Command::Post(post) => do_post(&client, &post),
+        Command::Take(take) => do_take(&client, &take),
     }
 }
 
@@ -26,6 +27,7 @@ type Error = Box<dyn std::error::Error>;
 #[derive(StructOpt)]
 enum Command {
     Post(Post),
+    Take(Take),
 }
 
 #[derive(StructOpt)]
@@ -36,11 +38,25 @@ struct Post {
     seller: Keypair,
     sell_account: Pubkey,
     sell_amount: u64,
-    receive_account: Pubkey,
-    receive_amount: u64,
+    buy_account: Pubkey,
+    buy_amount: u64,
 }
 
-// TODO TOKEN_PROGRAM_ID? Same as post.program_id?
+#[derive(StructOpt)]
+struct Take {
+    program_id: Pubkey,
+    #[structopt(parse(try_from_str = read_keypair_file))]
+    taker: Keypair,
+    taker_sell_account: Pubkey,
+    sell_amount: u64,
+    taker_buy_account: Pubkey,
+    buy_amount: u64,
+    poster: Pubkey,
+    poster_buy_account: Pubkey,
+    token_account: Pubkey,
+    escrow_account: Pubkey,
+}
+
 fn do_post(client: &RpcClient, post: &Post) -> Result<(), Error> {
     let escrow_account = Keypair::new();
     println!("Creating escrow account {}", escrow_account.pubkey());
@@ -119,12 +135,12 @@ fn post_trade_instruction(
     Instruction::new_with_borsh(
         post.program_id,
         &program::Instruction::Post {
-            amount: post.receive_amount,
+            buy_amount: post.buy_amount * LAMPORTS_PER_SOL,
         },
         vec![
             AccountMeta::new_readonly(post.seller.pubkey(), true),
             AccountMeta::new(token_account, false),
-            AccountMeta::new_readonly(post.receive_account, false),
+            AccountMeta::new_readonly(post.buy_account, false),
             AccountMeta::new(escrow_account, false),
             AccountMeta::new_readonly(spl_token::ID, false),
         ],
@@ -146,4 +162,31 @@ fn execute(
     );
     client.send_and_confirm_transaction(&transaction)?;
     Ok(())
+}
+
+fn do_take(client: &RpcClient, take: &Take) -> Result<(), Error> {
+    let (pda, _) = Pubkey::find_program_address(&[&b"escrow"[..]], &take.program_id);
+    let instruction = take_trade_instruction(take, pda);
+    execute(client, &take.taker, &[instruction], vec![&take.taker])
+}
+
+fn take_trade_instruction(take: &Take, pda: Pubkey) -> Instruction {
+    Instruction::new_with_borsh(
+        take.program_id,
+        &program::Instruction::Take {
+            buy_amount: take.buy_amount * LAMPORTS_PER_SOL,
+            sell_amount: take.sell_amount * LAMPORTS_PER_SOL,
+        },
+        vec![
+            AccountMeta::new_readonly(take.taker.pubkey(), true),
+            AccountMeta::new(take.taker_sell_account, false),
+            AccountMeta::new(take.taker_buy_account, false),
+            AccountMeta::new(take.token_account, false),
+            AccountMeta::new(take.poster, false),
+            AccountMeta::new(take.poster_buy_account, false),
+            AccountMeta::new(take.escrow_account, false),
+            AccountMeta::new_readonly(spl_token::ID, false),
+            AccountMeta::new_readonly(pda, false),
+        ],
+    )
 }
