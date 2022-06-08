@@ -5,4 +5,7 @@ edition = "2021"
 
 [dependencies]
 structopt = "=0.3.26"
-solana-program = "=1.10.21"
+solana-sdk = "*"
+solana-client = "*"
+spl-token = "*"
+program = { path = "../program" }

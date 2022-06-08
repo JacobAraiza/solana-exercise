@@ -1,7 +1,7 @@
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::{BorshDeserialize, BorshSchema, BorshSerialize};
 use solana_program::pubkey::Pubkey;
 
-#[derive(BorshSerialize, BorshDeserialize)]
+#[derive(BorshSerialize, BorshDeserialize, BorshSchema)]
 pub struct Escrow {
     pub is_initialized: bool,
     pub seller: Pubkey,
