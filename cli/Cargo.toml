@@ -11,3 +11,4 @@ spl-token = "*"
 program = { path = "../program" }
 borsh = "*"
 question = "=0.2.2"
+spl-associated-token-account = "*"
