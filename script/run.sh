@@ -22,33 +22,39 @@ spl-token mint $token_y 100 $bob_y > /dev/null
 program_id=$(solana-keygen pubkey /home/drgabble/mlabs/solana/target/deploy/program-keypair.json | tr -d '\n')
 echo "Program id $program_id"
 
-echo "Alice $alice"
-echo "  $(spl-token balance --address $alice_x)X in $alice_x"
-echo "  $(spl-token balance --address $alice_y)X in $alice_y"
-echo "Bob $bob"
-echo "  $(spl-token balance --address $bob_x)X in $bob_x"
-echo "  $(spl-token balance --address $bob_y)Y in $bob_y"
+function echo_balances() {
+    echo "Alice $alice"
+    echo "  $(spl-token balance --address $alice_x)X in $alice_x"
+    echo "  $(spl-token balance --address $alice_y)X in $alice_y"
+    echo "Bob $bob"
+    echo "  $(spl-token balance --address $bob_x)X in $bob_x"
+    echo "  $(spl-token balance --address $bob_y)Y in $bob_y"
+}
+
+echo_balances
 
 # Post trade
-trade_output=$(cargo run -- post ./alice-keypair.json  $alice_x 10 $alice_y 11)
-escrow=$(echo $trade_output | awk '{print $4}' | tr -d '\n')
-tokens=$(echo $trade_output | awk '{print $8}' | tr -d '\n')
-echo "Tokens account: $tokens"
-echo "Escrow account: $escrow"
+function post_trade() {
+    trade_output=$(cargo run -- post ./alice-keypair.json  $alice_x 10 $alice_y 11)
+    escrow=$(echo $trade_output | awk '{print $4}' | tr -d '\n')
+    tokens=$(echo $trade_output | awk '{print $8}' | tr -d '\n')
+    echo "Tokens account: $tokens"
+    echo "Escrow account: $escrow"
+}
 
-echo "Alice $alice"
-echo "  $(spl-token balance --address $alice_x)X in $alice_x"
-echo "  $(spl-token balance --address $alice_y)X in $alice_y"
-echo "Bob $bob"
-echo "  $(spl-token balance --address $bob_x)X in $bob_x"
-echo "  $(spl-token balance --address $bob_y)Y in $bob_y"
+post_trade
+
+# Cancel trade
+cargo run -- cancel ./alice-keypair.json $escrow $alice_x
+
+echo_balances
+
+# Post trade again
+post_trade
+
+echo_balances
 
 # Take trade
 cargo run -- take ./bob-keypair.json $bob_y $bob_x $escrow
 
-echo "Alice $alice"
-echo "  $(spl-token balance --address $alice_x)X in $alice_x"
-echo "  $(spl-token balance --address $alice_y)X in $alice_y"
-echo "Bob $bob"
-echo "  $(spl-token balance --address $bob_x)X in $bob_x"
-echo "  $(spl-token balance --address $bob_y)Y in $bob_y"
+echo_balances

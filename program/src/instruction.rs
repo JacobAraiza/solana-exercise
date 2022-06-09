@@ -16,7 +16,7 @@ pub enum Instruction {
         buy_amount: u64,
     },
 
-    /// Takes a trade that a seller has Posted
+    /// Takes a trade that a seller has Post-ed
     ///
     /// Accounts expected:
     ///
@@ -30,4 +30,17 @@ pub enum Instruction {
     /// 7. `[]` The token program
     /// 8. `[]` The PDA account
     Take { buy_amount: u64, sell_amount: u64 },
+
+    /// Cancel trade that a poster has Post-ed,
+    /// returning authority of temporary token account to poster
+    ///
+    /// Accounts expected:
+    ///
+    /// 0. `[signer]` The account of the original poster
+    /// 1. `[writable]` The temporary token account (which will be reassigned back to poster)
+    /// 2. `[writable]` The escrow account (which will be uninitialized)    
+    /// 3. `[writeable]` The taker's account to refund tokens to
+    /// 4. `[]` The token program
+    /// 8. `[]` The PDA account
+    Cancel {},
 }

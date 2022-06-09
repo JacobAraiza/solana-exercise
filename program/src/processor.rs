@@ -30,6 +30,7 @@ pub fn process(
             buy_amount,
             sell_amount,
         } => process_take(program_id, accounts, buy_amount, sell_amount),
+        Instruction::Cancel {} => process_cancel(program_id, accounts),
     }
 }
 
@@ -48,7 +49,6 @@ fn process_post(program_id: &Pubkey, accounts: &[AccountInfo], buy_amount: u64) 
 
     let token_account = next_account_info(&mut accounts_iter)?;
     if *token_account.owner != spl_token::id() {
-        // TODO this check not necessary because transfer would fail anyway?
         return Err(ProgramError::IncorrectProgramId);
     }
 
@@ -182,59 +182,142 @@ fn process_take(
     )?;
 
     //
-    // Send token X amount from poster's to taker's account
+    // Send token X amount from token account to taker's account, then close account
     //
     msg!("Sending token X from Poster to Taker");
+    transfer_and_close(
+        program_id,
+        token_program,
+        token_account,
+        taker_buy_account,
+        poster,
+        pda_account,
+        token_info.amount,
+    )?;
+
+    //
+    // Close escrow account (returning rent to poster)
+    //
+    close_escrow(escrow_account, poster)?;
+
+    Ok(())
+}
+
+fn process_cancel(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
+    //
+    // deserialize accounts info
+    //
+    msg!("Deserializing accounts");
+    let mut accounts_iter = accounts.iter();
+
+    let poster = next_account_info(&mut accounts_iter)?;
+    if !poster.is_signer {
+        return Err(ProgramError::MissingRequiredSignature);
+    }
+
+    let token_account = next_account_info(&mut accounts_iter)?;
+    if *token_account.owner != spl_token::id() {
+        return Err(ProgramError::IncorrectProgramId);
+    }
+
+    let escrow = next_account_info(&mut accounts_iter)?;
+    let refund_account = next_account_info(&mut accounts_iter)?;
+    let token_program = next_account_info(&mut accounts_iter)?;
+    let pda_account = next_account_info(&mut accounts_iter)?;
+
+    //
+    // Deserialize token account info
+    //
+    msg!("Deserializing token account");
+    let token_info = spl_token::state::Account::unpack(&token_account.try_borrow_data()?)?;
+
+    //
+    // Deserialize escrow account info
+    //
+    msg!("Deserializing escrow info");
+    let escrow_info = Escrow::deserialize(&mut escrow.try_borrow_data()?.as_ref())?;
+    if escrow_info.token_account != *token_account.key {
+        return Err(ProgramError::InvalidAccountData);
+    }
+    if escrow_info.poster != *poster.key {
+        return Err(ProgramError::InvalidAccountData);
+    }
+
+    //
+    // Transfer authority of tokens account back to poster
+    //
+    msg!("Calling the token program to transfer token account ownership...");
+    transfer_and_close(
+        program_id,
+        token_program,
+        token_account,
+        refund_account,
+        poster,
+        pda_account,
+        token_info.amount,
+    )?;
+
+    //
+    // Close escrow account
+    //
+    close_escrow(escrow, poster)?;
+
+    Ok(())
+}
+
+fn transfer_and_close<'a>(
+    program_id: &Pubkey,
+    token_program: &AccountInfo<'a>,
+    source_account: &AccountInfo<'a>,
+    destination_account: &AccountInfo<'a>,
+    poster: &AccountInfo<'a>,
+    pda_account: &AccountInfo<'a>,
+    amount: u64,
+) -> ProgramResult {
     let (pda, bump_seed) = Pubkey::find_program_address(&[ESCROW_SEED], program_id);
     invoke_signed(
         &spl_token::instruction::transfer(
             token_program.key,
-            token_account.key,
-            taker_buy_account.key,
+            source_account.key,
+            destination_account.key,
             &pda,
             &[&pda],
-            token_info.amount,
+            amount,
         )?,
         &[
-            token_account.clone(),
-            taker_buy_account.clone(),
+            source_account.clone(),
+            destination_account.clone(),
             pda_account.clone(),
             token_program.clone(),
         ],
         &[&[ESCROW_SEED, &[bump_seed]]],
     )?;
-
-    //
-    // Close the token account
-    //
-    msg!("Closing token account");
     invoke_signed(
         &spl_token::instruction::close_account(
             token_program.key,
-            token_account.key,
+            source_account.key,
             poster.key,
             &pda,
             &[&pda],
         )?,
         &[
-            token_account.clone(),
+            source_account.clone(),
             poster.clone(),
             pda_account.clone(),
             token_program.clone(),
         ],
         &[&[ESCROW_SEED, &[bump_seed]]],
     )?;
+    Ok(())
+}
 
-    //
-    // Close escrow account (returning rent to poster)
-    //
-    msg!("Closing escrow");
+fn close_escrow(escrow: &AccountInfo, poster: &AccountInfo) -> ProgramResult {
+    msg!("Closing escrow account");
     **poster.lamports.borrow_mut() = poster
         .lamports()
-        .checked_add(escrow_account.lamports())
+        .checked_add(escrow.lamports())
         .ok_or(Error::AmountOverflow)?;
-    **escrow_account.lamports.borrow_mut() = 0;
-    *escrow_account.try_borrow_mut_data()? = &mut [];
-
+    **escrow.lamports.borrow_mut() = 0;
+    *escrow.try_borrow_mut_data()? = &mut [];
     Ok(())
 }

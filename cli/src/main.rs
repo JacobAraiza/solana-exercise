@@ -23,6 +23,7 @@ fn main() -> Result<(), Error> {
     match Command::from_args() {
         Command::Post(post) => do_post(&client, &post),
         Command::Take(take) => do_take(&client, &take),
+        Command::Cancel(cancel) => do_cancel(&client, &cancel),
     }
 }
 
@@ -32,12 +33,13 @@ type Error = Box<dyn std::error::Error>;
 enum Command {
     Post(Post),
     Take(Take),
+    Cancel(Cancel),
 }
 
 #[derive(StructOpt)]
 struct Post {
     #[structopt(parse(try_from_str = read_keypair_file))]
-    seller: Keypair,
+    poster: Keypair,
     sell_account: Pubkey,
     sell_amount: u64,
     buy_account: Pubkey,
@@ -55,6 +57,14 @@ struct Take {
     force: bool,
 }
 
+#[derive(StructOpt)]
+struct Cancel {
+    #[structopt(parse(try_from_str = read_keypair_file))]
+    poster: Keypair,
+    escrow_account: Pubkey,
+    refund_account: Pubkey,
+}
+
 fn do_post(client: &RpcClient, post: &Post) -> Result<(), Error> {
     let sell_token_mint = get_token_mint(client, &post.sell_account)?;
     let escrow_account = Keypair::new();
@@ -62,24 +72,24 @@ fn do_post(client: &RpcClient, post: &Post) -> Result<(), Error> {
     let token_account = Keypair::new();
     println!("Creating token account {}", token_account.pubkey());
     let instructions = [
-        create_token_account_instruction(client, &post.seller.pubkey(), &token_account.pubkey())?,
+        create_token_account_instruction(client, &post.poster.pubkey(), &token_account.pubkey())?,
         spl_token::instruction::initialize_account(
             &spl_token::ID,
             &token_account.pubkey(),
             &sell_token_mint,
-            &post.seller.pubkey(),
+            &post.poster.pubkey(),
         )?,
         spl_token::instruction::transfer(
             &spl_token::ID,
             &post.sell_account,
             &token_account.pubkey(),
-            &post.seller.pubkey(),
+            &post.poster.pubkey(),
             &[],
             post.sell_amount * LAMPORTS_PER_SOL,
         )?,
         create_escrow_instruction(
             client,
-            &post.seller.pubkey(),
+            &post.poster.pubkey(),
             &escrow_account.pubkey(),
             &program_id(),
         )?,
@@ -87,9 +97,9 @@ fn do_post(client: &RpcClient, post: &Post) -> Result<(), Error> {
     ];
     execute(
         client,
-        &post.seller,
+        &post.poster,
         &instructions,
-        vec![&post.seller, &token_account, &escrow_account],
+        vec![&post.poster, &token_account, &escrow_account],
     )
 }
 
@@ -105,13 +115,13 @@ fn get_token_mint(client: &RpcClient, token: &Pubkey) -> Result<Pubkey, Error> {
 
 fn create_token_account_instruction(
     client: &RpcClient,
-    seller: &Pubkey,
+    poster: &Pubkey,
     token_account: &Pubkey,
 ) -> Result<Instruction, Error> {
     let space = spl_token::state::Account::LEN;
     let rent = client.get_minimum_balance_for_rent_exemption(space)?;
     Ok(solana_sdk::system_instruction::create_account(
-        seller,
+        poster,
         token_account,
         rent,
         space as u64,
@@ -121,14 +131,14 @@ fn create_token_account_instruction(
 
 fn create_escrow_instruction(
     client: &RpcClient,
-    seller: &Pubkey,
+    poster: &Pubkey,
     escrow_account: &Pubkey,
     program_id: &Pubkey,
 ) -> Result<Instruction, Error> {
     let space = get_packed_len::<program::Escrow>();
     let rent = client.get_minimum_balance_for_rent_exemption(space)?;
     Ok(solana_sdk::system_instruction::create_account(
-        seller,
+        poster,
         escrow_account,
         rent,
         space as u64,
@@ -147,7 +157,7 @@ fn post_trade_instruction(
             buy_amount: post.buy_amount * LAMPORTS_PER_SOL,
         },
         vec![
-            AccountMeta::new_readonly(post.seller.pubkey(), true),
+            AccountMeta::new_readonly(post.poster.pubkey(), true),
             AccountMeta::new(token_account, false),
             AccountMeta::new_readonly(post.buy_account, false),
             AccountMeta::new(escrow_account, false),
@@ -226,6 +236,33 @@ fn take_trade_instruction(
             AccountMeta::new(escrow.poster, false),
             AccountMeta::new(escrow.poster_buy_account, false),
             AccountMeta::new(take.escrow_account, false),
+            AccountMeta::new_readonly(spl_token::ID, false),
+            AccountMeta::new_readonly(pda, false),
+        ],
+    )
+}
+
+//
+// Cancel existing trade
+//
+
+fn do_cancel(client: &RpcClient, cancel: &Cancel) -> Result<(), Error> {
+    let escrow_info =
+        Escrow::deserialize(&mut client.get_account(&cancel.escrow_account)?.data.as_ref())?;
+    let instructions = [cancel_trade_instruction(cancel, escrow_info.token_account)];
+    execute(client, &cancel.poster, &instructions, vec![&cancel.poster])
+}
+
+fn cancel_trade_instruction(cancel: &Cancel, token_account: Pubkey) -> Instruction {
+    let (pda, _) = Pubkey::find_program_address(&[program::ESCROW_SEED], &program_id());
+    Instruction::new_with_borsh(
+        program_id(),
+        &program::Instruction::Cancel {},
+        vec![
+            AccountMeta::new_readonly(cancel.poster.pubkey(), true),
+            AccountMeta::new(token_account, false),
+            AccountMeta::new(cancel.escrow_account, false),
+            AccountMeta::new(cancel.refund_account, false),
             AccountMeta::new_readonly(spl_token::ID, false),
             AccountMeta::new_readonly(pda, false),
         ],
