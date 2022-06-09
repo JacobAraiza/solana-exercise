@@ -30,7 +30,7 @@ echo "  $(spl-token balance --address $bob_x)X in $bob_x"
 echo "  $(spl-token balance --address $bob_y)Y in $bob_y"
 
 # Post trade
-trade_output=$(cargo run -- post $program_id $token_x ./alice-keypair.json  $alice_x 10 $alice_y 11)
+trade_output=$(cargo run -- post $program_id ./alice-keypair.json  $alice_x 10 $alice_y 11)
 escrow=$(echo $trade_output | awk '{print $4}' | tr -d '\n')
 tokens=$(echo $trade_output | awk '{print $8}' | tr -d '\n')
 echo "Tokens account: $tokens"
@@ -44,7 +44,7 @@ echo "  $(spl-token balance --address $bob_x)X in $bob_x"
 echo "  $(spl-token balance --address $bob_y)Y in $bob_y"
 
 # Take trade
-cargo run -- take $program_id ./bob-keypair.json $bob_y 11 $bob_x 10 $alice $alice_y $tokens $escrow
+cargo run -- take $program_id ./bob-keypair.json $bob_y $bob_x $escrow
 
 echo "Alice $alice"
 echo "  $(spl-token balance --address $alice_x)X in $alice_x"

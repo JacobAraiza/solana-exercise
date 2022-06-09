@@ -1,3 +1,5 @@
+use borsh::BorshDeserialize;
+use program::Escrow;
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
     borsh::get_packed_len,
@@ -33,7 +35,6 @@ enum Command {
 #[derive(StructOpt)]
 struct Post {
     program_id: Pubkey,
-    token_x_mint: Pubkey,
     #[structopt(parse(try_from_str = read_keypair_file))]
     seller: Keypair,
     sell_account: Pubkey,
@@ -48,16 +49,12 @@ struct Take {
     #[structopt(parse(try_from_str = read_keypair_file))]
     taker: Keypair,
     taker_sell_account: Pubkey,
-    sell_amount: u64,
     taker_buy_account: Pubkey,
-    buy_amount: u64,
-    poster: Pubkey,
-    poster_buy_account: Pubkey,
-    token_account: Pubkey,
     escrow_account: Pubkey,
 }
 
 fn do_post(client: &RpcClient, post: &Post) -> Result<(), Error> {
+    let sell_token_mint = get_token_mint(client, &post.sell_account)?;
     let escrow_account = Keypair::new();
     println!("Creating escrow account {}", escrow_account.pubkey());
     let token_account = Keypair::new();
@@ -67,7 +64,7 @@ fn do_post(client: &RpcClient, post: &Post) -> Result<(), Error> {
         spl_token::instruction::initialize_account(
             &spl_token::ID,
             &token_account.pubkey(),
-            &post.token_x_mint,
+            &sell_token_mint,
             &post.seller.pubkey(),
         )?,
         spl_token::instruction::transfer(
@@ -92,6 +89,12 @@ fn do_post(client: &RpcClient, post: &Post) -> Result<(), Error> {
         &instructions,
         vec![&post.seller, &token_account, &escrow_account],
     )
+}
+
+fn get_token_mint(client: &RpcClient, token: &Pubkey) -> Result<Pubkey, Error> {
+    let account = client.get_account(token)?;
+    let account_info = spl_token::state::Account::unpack(&account.data)?;
+    Ok(account_info.mint)
 }
 
 fn create_token_account_instruction(
@@ -165,25 +168,39 @@ fn execute(
 }
 
 fn do_take(client: &RpcClient, take: &Take) -> Result<(), Error> {
+    let escrow =
+        Escrow::deserialize(&mut client.get_account(&take.escrow_account)?.data.as_slice())?;
+    let buy_amount = get_token_amount(client, &escrow.token_account)?;
     let (pda, _) = Pubkey::find_program_address(&[&b"escrow"[..]], &take.program_id);
-    let instruction = take_trade_instruction(take, pda);
+    let instruction = take_trade_instruction(take, &escrow, buy_amount, pda);
     execute(client, &take.taker, &[instruction], vec![&take.taker])
 }
 
-fn take_trade_instruction(take: &Take, pda: Pubkey) -> Instruction {
+fn get_token_amount(client: &RpcClient, token: &Pubkey) -> Result<u64, Error> {
+    let account = client.get_account(token)?;
+    let account_info = spl_token::state::Account::unpack(&account.data)?;
+    Ok(account_info.amount)
+}
+
+fn take_trade_instruction(
+    take: &Take,
+    escrow: &Escrow,
+    buy_amount: u64,
+    pda: Pubkey,
+) -> Instruction {
     Instruction::new_with_borsh(
         take.program_id,
         &program::Instruction::Take {
-            buy_amount: take.buy_amount * LAMPORTS_PER_SOL,
-            sell_amount: take.sell_amount * LAMPORTS_PER_SOL,
+            buy_amount,
+            sell_amount: escrow.buy_amount,
         },
         vec![
             AccountMeta::new_readonly(take.taker.pubkey(), true),
             AccountMeta::new(take.taker_sell_account, false),
             AccountMeta::new(take.taker_buy_account, false),
-            AccountMeta::new(take.token_account, false),
-            AccountMeta::new(take.poster, false),
-            AccountMeta::new(take.poster_buy_account, false),
+            AccountMeta::new(escrow.token_account, false),
+            AccountMeta::new(escrow.poster, false),
+            AccountMeta::new(escrow.poster_buy_account, false),
             AccountMeta::new(take.escrow_account, false),
             AccountMeta::new_readonly(spl_token::ID, false),
             AccountMeta::new_readonly(pda, false),
