@@ -14,6 +14,8 @@ use solana_program::{
     sysvar::Sysvar,
 };
 
+pub const ESCROW_SEED: &[u8] = b"escrow";
+
 pub fn process(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
@@ -84,7 +86,7 @@ fn process_post(program_id: &Pubkey, accounts: &[AccountInfo], buy_amount: u64) 
     //
     // transfer ownsership of trade account to PDA
     //
-    let (pda, _bump_seed) = Pubkey::find_program_address(&[b"escrow"], program_id);
+    let (pda, _bump_seed) = Pubkey::find_program_address(&[ESCROW_SEED], program_id);
     let owner_change_instruction = spl_token::instruction::set_authority(
         token_program.key,
         token_account.key,
@@ -183,7 +185,7 @@ fn process_take(
     // Send token X amount from poster's to taker's account
     //
     msg!("Sending token X from Poster to Taker");
-    let (pda, bump_seed) = Pubkey::find_program_address(&[b"escrow"], program_id);
+    let (pda, bump_seed) = Pubkey::find_program_address(&[ESCROW_SEED], program_id);
     invoke_signed(
         &spl_token::instruction::transfer(
             token_program.key,
@@ -199,7 +201,7 @@ fn process_take(
             pda_account.clone(),
             token_program.clone(),
         ],
-        &[&[&b"escrow"[..], &[bump_seed]]],
+        &[&[ESCROW_SEED, &[bump_seed]]],
     )?;
 
     //
@@ -220,7 +222,7 @@ fn process_take(
             pda_account.clone(),
             token_program.clone(),
         ],
-        &[&[&b"escrow"[..], &[bump_seed]]],
+        &[&[ESCROW_SEED, &[bump_seed]]],
     )?;
 
     //

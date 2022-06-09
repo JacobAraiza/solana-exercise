@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use borsh::BorshDeserialize;
 use program::Escrow;
 use solana_client::rpc_client::RpcClient;
@@ -34,7 +36,6 @@ enum Command {
 
 #[derive(StructOpt)]
 struct Post {
-    program_id: Pubkey,
     #[structopt(parse(try_from_str = read_keypair_file))]
     seller: Keypair,
     sell_account: Pubkey,
@@ -45,12 +46,13 @@ struct Post {
 
 #[derive(StructOpt)]
 struct Take {
-    program_id: Pubkey,
     #[structopt(parse(try_from_str = read_keypair_file))]
     taker: Keypair,
     taker_sell_account: Pubkey,
     taker_buy_account: Pubkey,
     escrow_account: Pubkey,
+    #[structopt(short, long)]
+    force: bool,
 }
 
 fn do_post(client: &RpcClient, post: &Post) -> Result<(), Error> {
@@ -79,7 +81,7 @@ fn do_post(client: &RpcClient, post: &Post) -> Result<(), Error> {
             client,
             &post.seller.pubkey(),
             &escrow_account.pubkey(),
-            &post.program_id,
+            &program_id(),
         )?,
         post_trade_instruction(post, escrow_account.pubkey(), token_account.pubkey()),
     ];
@@ -89,6 +91,10 @@ fn do_post(client: &RpcClient, post: &Post) -> Result<(), Error> {
         &instructions,
         vec![&post.seller, &token_account, &escrow_account],
     )
+}
+
+fn program_id() -> Pubkey {
+    Pubkey::from_str("77zL4LfjPjZbeCb8baAQ1pDvcWxNKxDFcVoJz5cxSFCv").unwrap()
 }
 
 fn get_token_mint(client: &RpcClient, token: &Pubkey) -> Result<Pubkey, Error> {
@@ -136,7 +142,7 @@ fn post_trade_instruction(
     token_account: Pubkey,
 ) -> Instruction {
     Instruction::new_with_borsh(
-        post.program_id,
+        program_id(),
         &program::Instruction::Post {
             buy_amount: post.buy_amount * LAMPORTS_PER_SOL,
         },
@@ -171,7 +177,10 @@ fn do_take(client: &RpcClient, take: &Take) -> Result<(), Error> {
     let escrow =
         Escrow::deserialize(&mut client.get_account(&take.escrow_account)?.data.as_slice())?;
     let buy_amount = get_token_amount(client, &escrow.token_account)?;
-    let (pda, _) = Pubkey::find_program_address(&[&b"escrow"[..]], &take.program_id);
+    if !take.force && !confirm_with_user(client, &escrow, buy_amount)? {
+        return Err("Trade aborted".into());
+    }
+    let (pda, _) = Pubkey::find_program_address(&[program::ESCROW_SEED], &program_id());
     let instruction = take_trade_instruction(take, &escrow, buy_amount, pda);
     execute(client, &take.taker, &[instruction], vec![&take.taker])
 }
@@ -182,6 +191,21 @@ fn get_token_amount(client: &RpcClient, token: &Pubkey) -> Result<u64, Error> {
     Ok(account_info.amount)
 }
 
+fn confirm_with_user(client: &RpcClient, escrow: &Escrow, buy_amount: u64) -> Result<bool, Error> {
+    let sell_token = get_token_mint(client, &escrow.poster_buy_account)?;
+    let buy_token = get_token_mint(client, &escrow.token_account)?;
+    println!("Preparing to do trade:");
+    println!("  sell {} of {}", escrow.buy_amount, sell_token);
+    println!("  buy {} of {}", buy_amount, buy_token);
+    println!("  from user {}", escrow.poster);
+    let answer = question::Question::new("Are you sure you want to continue?")
+        .yes_no()
+        .until_acceptable()
+        .ask()
+        .ok_or("Could not answer confirmation question")?;
+    Ok(answer == question::Answer::YES)
+}
+
 fn take_trade_instruction(
     take: &Take,
     escrow: &Escrow,
@@ -189,7 +213,7 @@ fn take_trade_instruction(
     pda: Pubkey,
 ) -> Instruction {
     Instruction::new_with_borsh(
-        take.program_id,
+        program_id(),
         &program::Instruction::Take {
             buy_amount,
             sell_amount: escrow.buy_amount,
