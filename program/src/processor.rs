@@ -1,7 +1,10 @@
+use std::str::FromStr;
+
 use crate::instruction::Instruction;
 use crate::{error::Error, state::Escrow};
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
     entrypoint::ProgramResult,
@@ -15,6 +18,12 @@ use solana_program::{
 };
 
 pub const ESCROW_SEED: &[u8] = b"escrow";
+
+pub const FEE: u64 = LAMPORTS_PER_SOL;
+
+pub fn fee_account_pubkey() -> Pubkey {
+    Pubkey::from_str("Btun84XLwZEtu4XjHwskq2Xu5qQK5FYw17UDDCfVHTbY").unwrap()
+}
 
 pub fn process(
     program_id: &Pubkey,
@@ -37,6 +46,8 @@ pub fn process(
 fn process_post(program_id: &Pubkey, accounts: &[AccountInfo], buy_amount: u64) -> ProgramResult {
     msg!("Instruction: Post");
 
+    let rent = Rent::get()?;
+
     //
     // deserialize accounts info
     //
@@ -51,6 +62,9 @@ fn process_post(program_id: &Pubkey, accounts: &[AccountInfo], buy_amount: u64) 
     if *token_account.owner != spl_token::id() {
         return Err(ProgramError::IncorrectProgramId);
     }
+    if !rent.is_exempt(token_account.lamports(), token_account.data_len()) {
+        return Err(Error::NotRentExempt.into());
+    }
 
     let buy_account = next_account_info(&mut accounts_iter)?;
     if *buy_account.owner != spl_token::id() {
@@ -58,12 +72,24 @@ fn process_post(program_id: &Pubkey, accounts: &[AccountInfo], buy_amount: u64) 
     }
 
     let escrow_account = next_account_info(&mut accounts_iter)?;
-
-    if !Rent::get()?.is_exempt(escrow_account.lamports(), escrow_account.data_len()) {
+    if !rent.is_exempt(escrow_account.lamports(), escrow_account.data_len()) {
         return Err(Error::NotRentExempt.into());
     }
 
     let token_program = next_account_info(&mut accounts_iter)?;
+    let system_program = next_account_info(&mut accounts_iter)?;
+    let fee_account = next_account_info(&mut accounts_iter)?;
+    if *fee_account.key != fee_account_pubkey() {
+        return Err(Error::IncorrectFeeAccount.into());
+    }
+
+    //
+    // Take fee
+    //
+    invoke(
+        &solana_program::system_instruction::transfer(poster.key, fee_account.key, FEE),
+        &[poster.clone(), fee_account.clone(), system_program.clone()],
+    )?;
 
     //
     // set escrow info
@@ -196,7 +222,7 @@ fn process_take(
     )?;
 
     //
-    // Close escrow account (returning rent to poster)
+    // Close escrow account
     //
     close_escrow(escrow_account, poster)?;
 

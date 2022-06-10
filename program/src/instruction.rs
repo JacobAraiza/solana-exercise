@@ -11,6 +11,8 @@ pub enum Instruction {
     /// 2. `[]` The poster's token account for the token they will receive should the trade go through
     /// 3. `[writable]` The escrow account, it will hold all necessary info about the trade.
     /// 4. `[]` The token program
+    /// 5. `[]` The system program (to allow for transferring the fee to escrow account)
+    /// 6. `[writeable]` The fee account (for fee to be payed into, owned by program)
     Post {
         /// Amount party A expects to receive of token Y
         buy_amount: u64,

@@ -1,5 +1,7 @@
 set -eu
 
+fee_account="Btun84XLwZEtu4XjHwskq2Xu5qQK5FYw17UDDCfVHTbY"
+
 # Minting new tokens
 echo "Minting new tokens"
 token_x=$(spl-token create-token | awk '{print $3}' | tr -d '\n')
@@ -26,9 +28,11 @@ function echo_balances() {
     bob_x=$(spl-token balance $token_x --owner $bob 2>/dev/null || echo 0)
     bob_y=$(spl-token balance $token_y --owner $bob)
     bob_sol=$(solana balance $bob)
+    fee_sol=$(solana balance $fee_account)
     echo "Current balances"
     echo "  Alice $alice ${alice_x}X and ${alice_y}Y $alice_sol"
     echo "  Bob $bob ${bob_x}X and ${bob_y}Y $bob_sol"
+    echo "  Program fees $fee_sol"
 }
 
 echo_balances

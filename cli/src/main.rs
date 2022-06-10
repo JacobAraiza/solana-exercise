@@ -22,6 +22,7 @@ fn main() -> Result<(), Error> {
     let client =
         RpcClient::new_with_commitment("http://localhost:8899", CommitmentConfig::confirmed());
     match Command::from_args() {
+        Command::Create(create) => do_create_fee_account(&client, &create),
         Command::Post(post) => do_post(&client, &post),
         Command::Take(take) => do_take(&client, &take),
         Command::Cancel(cancel) => do_cancel(&client, &cancel),
@@ -32,9 +33,16 @@ type Error = Box<dyn std::error::Error>;
 
 #[derive(StructOpt)]
 enum Command {
+    Create(Create),
     Post(Post),
     Take(Take),
     Cancel(Cancel),
+}
+
+#[derive(StructOpt)]
+struct Create {
+    #[structopt(parse(try_from_str = read_keypair_file))]
+    administrator: Keypair,
 }
 
 #[derive(StructOpt)]
@@ -61,6 +69,24 @@ struct Cancel {
     #[structopt(parse(try_from_str = read_keypair_file))]
     poster: Keypair,
     escrow_account: Pubkey,
+}
+
+fn do_create_fee_account(client: &RpcClient, create: &Create) -> Result<(), Error> {
+    let fee_account = Keypair::new();
+    println!("Making new fee account {}", fee_account.pubkey());
+    let rent = client.get_minimum_balance_for_rent_exemption(0)?;
+    execute(
+        client,
+        &create.administrator,
+        &[solana_sdk::system_instruction::create_account(
+            &create.administrator.pubkey(),
+            &fee_account.pubkey(),
+            rent,
+            0,
+            &program_id(),
+        )],
+        vec![&create.administrator, &fee_account],
+    )
 }
 
 ///
@@ -179,6 +205,8 @@ fn post_trade_instruction(
             AccountMeta::new_readonly(buy_account, false),
             AccountMeta::new(escrow_account, false),
             AccountMeta::new_readonly(spl_token::ID, false),
+            AccountMeta::new_readonly(solana_sdk::system_program::ID, false),
+            AccountMeta::new(program::fee_account_pubkey(), false),
         ],
     )
 }

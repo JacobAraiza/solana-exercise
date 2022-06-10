@@ -14,6 +14,10 @@ pub enum Error {
     ExpectedAmountMismatch,
     #[error("Lamport amount overflow")]
     AmountOverflow,
+    #[error("Not enough lamports to pay for fee")]
+    NotEnoughForFee,
+    #[error("Not the right account to pay fee into")]
+    IncorrectFeeAccount,
 }
 
 impl From<Error> for ProgramError {
