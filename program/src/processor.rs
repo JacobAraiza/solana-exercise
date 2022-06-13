@@ -301,6 +301,9 @@ fn transfer_and_close<'a>(
     amount: u64,
 ) -> ProgramResult {
     let (pda, bump_seed) = Pubkey::find_program_address(&[ESCROW_SEED], program_id);
+    if *pda_account.owner != pda {
+        return Err(Error::IncorrectPDA.into());
+    }
     invoke_signed(
         &spl_token::instruction::transfer(
             token_program.key,

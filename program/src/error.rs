@@ -22,6 +22,8 @@ pub enum Error {
     DoesntMatchEscrow,
     #[error("Account is not a token account (not owned by token id)")]
     AccountNotToken,
+    #[error("Incorrect PDA account")]
+    IncorrectPDA,
 }
 
 impl From<Error> for ProgramError {
