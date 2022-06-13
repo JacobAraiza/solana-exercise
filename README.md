@@ -36,3 +36,13 @@ cargo run -- create PATH_TO_YOUR_KEYPAIR
 ### Integration Test
 
 - run `./script/run.sh`
+
+## TODO
+- unit testing
+- pda_account not checked.
+- get_associated_token_account are called with the wrong value, test with wallet.
+- Should avoid using temp accounts and set authority, instead create PDA account and transfer balance.
+
+- No mint pk on chain makes for difficult indexing.
+- The CLI doesn't have an option for listing
+- Delegation would simplify the process and limit escrow

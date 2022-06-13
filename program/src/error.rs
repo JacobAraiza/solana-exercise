@@ -18,6 +18,10 @@ pub enum Error {
     NotEnoughForFee,
     #[error("Not the right account to pay fee into")]
     IncorrectFeeAccount,
+    #[error("Accounts supplied do not match information in escrow account")]
+    DoesntMatchEscrow,
+    #[error("Account is not a token account (not owned by token id)")]
+    AccountNotToken,
 }
 
 impl From<Error> for ProgramError {

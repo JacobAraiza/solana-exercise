@@ -60,7 +60,7 @@ fn process_post(program_id: &Pubkey, accounts: &[AccountInfo], buy_amount: u64) 
 
     let token_account = next_account_info(&mut accounts_iter)?;
     if *token_account.owner != spl_token::id() {
-        return Err(ProgramError::IncorrectProgramId);
+        return Err(Error::AccountNotToken.into());
     }
     if !rent.is_exempt(token_account.lamports(), token_account.data_len()) {
         return Err(Error::NotRentExempt.into());
@@ -68,7 +68,7 @@ fn process_post(program_id: &Pubkey, accounts: &[AccountInfo], buy_amount: u64) 
 
     let buy_account = next_account_info(&mut accounts_iter)?;
     if *buy_account.owner != spl_token::id() {
-        return Err(ProgramError::IncorrectProgramId);
+        return Err(Error::AccountNotToken.into());
     }
 
     let escrow_account = next_account_info(&mut accounts_iter)?;
@@ -174,13 +174,13 @@ fn process_take(
     msg!("Deserializing escrow info");
     let escrow_info = Escrow::deserialize(&mut escrow_account.try_borrow_data()?.as_ref())?;
     if escrow_info.token_account != *token_account.key {
-        return Err(ProgramError::InvalidAccountData);
+        return Err(Error::DoesntMatchEscrow.into());
     }
     if escrow_info.poster != *poster.key {
-        return Err(ProgramError::InvalidAccountData);
+        return Err(Error::DoesntMatchEscrow.into());
     }
     if escrow_info.poster_buy_account != *poster_buy_account.key {
-        return Err(ProgramError::InvalidAccountData);
+        return Err(Error::DoesntMatchEscrow.into());
     }
     if escrow_info.buy_amount != sell_amount {
         return Err(Error::ExpectedAmountMismatch.into());
@@ -243,7 +243,7 @@ fn process_cancel(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResul
 
     let token_account = next_account_info(&mut accounts_iter)?;
     if *token_account.owner != spl_token::id() {
-        return Err(ProgramError::IncorrectProgramId);
+        return Err(Error::AccountNotToken.into());
     }
 
     let escrow = next_account_info(&mut accounts_iter)?;
@@ -263,10 +263,10 @@ fn process_cancel(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResul
     msg!("Deserializing escrow info");
     let escrow_info = Escrow::deserialize(&mut escrow.try_borrow_data()?.as_ref())?;
     if escrow_info.token_account != *token_account.key {
-        return Err(ProgramError::InvalidAccountData);
+        return Err(Error::DoesntMatchEscrow.into());
     }
     if escrow_info.poster != *poster.key {
-        return Err(ProgramError::InvalidAccountData);
+        return Err(Error::DoesntMatchEscrow.into());
     }
 
     //
